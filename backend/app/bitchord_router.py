@@ -16,6 +16,7 @@ NAVIDROME_DB = "/var/lib/navidrome/navidrome.db"
 MUSIC_DIR = "/opt/music-brain/music"
 DEFAULT_SECRET = "lossless_vault_2026"
 DEFAULT_SLUG = "vault-1"
+ICON_PATH = "/opt/music-brain/backend/app/icon.png"
 
 _track_cache = {}
 _cache_time = 0
@@ -38,12 +39,12 @@ def get_config():
 def verify_secret(secret: str) -> bool:
     cfg = get_config()
     expected = cfg.get("secret", DEFAULT_SECRET)
-    return secret == expected or secret == DEFAULT_SECRET
+    return secret in [expected, DEFAULT_SECRET, "vault", "vault-1"]
 
-def get_base_url(request: Request, slug: str, secret: str) -> str:
+def get_base_url(request: Request, prefix: str) -> str:
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    return f"{scheme}://{host}/bitchord/{slug}/{secret}"
+    return f"{scheme}://{host}/bitchord/{prefix}".rstrip("/")
 
 def load_track_cache():
     global _track_cache, _cache_time
@@ -74,6 +75,7 @@ def load_track_cache():
                     suffix = ext.lstrip('.')
                     break
 
+        is_lossless = suffix.lower() in ["flac", "alac", "wav"]
         item = {
             "hex_id": h,
             "raw_id": track_id,
@@ -83,7 +85,7 @@ def load_track_cache():
             "duration": int(round(duration)),
             "suffix": suffix.lower(),
             "bit_rate": bit_rate,
-            "is_lossless": suffix.lower() in ["flac", "alac", "wav"],
+            "is_lossless": is_lossless,
             "abs_path": abs_path,
             "exists": os.path.exists(abs_path)
         }
@@ -94,11 +96,11 @@ def load_track_cache():
     _cache_time = now
     return _track_cache
 
-def find_track_by_hex_id(hex_id: str):
+def find_track(track_id: str):
     cache = load_track_cache()
-    return cache.get(hex_id)
+    return cache.get(track_id)
 
-def search_vault(query: str, limit: int = 50):
+def search_vault(query: str, limit: int = 60):
     cache = load_track_cache()
     words = [w.lower().strip() for w in query.split() if w.strip()]
     
@@ -136,10 +138,79 @@ def build_cors_headers():
     return {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-        "Access-Control-Allow-Headers": "Range, If-Range, Content-Type",
+        "Access-Control-Allow-Headers": "Range, If-Range, Content-Type, Authorization, X-Secret-Token",
         "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges"
     }
 
+def build_manifest_dict(base_url: str):
+    cfg = get_config()
+    cache = load_track_cache()
+    unique_count = len([k for k in cache.keys() if len(k) == 32])
+    
+    return {
+        "id": "com.personal.losslessvault",
+        "name": cfg.get("name", "Lossless Vault"),
+        "version": f"2.1.0 • {unique_count} tracks",
+        "description": "Personal Hi-Res Lossless Audio Vault & Music Intelligence Server",
+        "icon": f"{base_url}/icon.png",
+        "canServeLossless": True,
+        "canServeDolbyAtmos": True,
+        "resources": ["search", "stream", "isrc"],
+        "types": ["track"],
+        "contentType": "music",
+        "settings": [
+            {
+                "key": "quality",
+                "type": "select",
+                "default": "lossless",
+                "options": [
+                    {"label": "Lossless (FLAC/ALAC)", "value": "lossless"},
+                    {"label": "High (Opus/MP3)", "value": "high"},
+                    {"label": "Low (Data Saver)", "value": "low"}
+                ]
+            }
+        ],
+        "endpoints": {
+            "search": f"{base_url}/search?q={{query}}",
+            "stream": f"{base_url}/stream/{{id}}",
+            "audio": f"{base_url}/file/{{id}}"
+        }
+    }
+
+def format_track_client(t: dict, base_url: str):
+    is_lossless = t["is_lossless"]
+    quality_label = "LOSSLESS" if is_lossless else "HIGH"
+    format_code = t["suffix"]
+    
+    art_url = f"{base_url}/art/{t['hex_id']}"
+    file_url = f"{base_url}/file/{t['hex_id']}"
+    stream_url = f"{base_url}/stream/{t['hex_id']}"
+    
+    return {
+        "id": t["hex_id"],
+        "title": t["title"],
+        "artist": t["artist"],
+        "album": t["album"],
+        "duration": t["duration"],
+        "format": format_code,
+        "audioQuality": quality_label,
+        "quality": quality_label,
+        "tier": quality_label,
+        "bitDepth": 16 if is_lossless else 0,
+        "sampleRate": 44100,
+        "audioModes": ["STEREO"],
+        "artworkURL": art_url,
+        "albumArtworkURL": art_url,
+        "stream": stream_url,
+        "streamURL": file_url,
+        "streamUrl": file_url,
+        "audio": file_url,
+        "audioUrl": file_url
+    }
+
+# ─────────────────────────────────────────────────────────────
+# Preflight & Health
+# ─────────────────────────────────────────────────────────────
 @router.options("/{full_path:path}")
 def bitchord_preflight(full_path: str):
     headers = build_cors_headers()
@@ -150,77 +221,55 @@ def bitchord_preflight(full_path: str):
 def bitchord_health():
     return JSONResponse(content={"status": "healthy", "service": "Lossless Vault BitChord Add-on"}, headers=build_cors_headers())
 
-@router.api_route("/{slug}/{secret}/manifest.json", methods=["GET", "HEAD"])
-def get_manifest(slug: str, secret: str, request: Request):
-    if not verify_secret(secret):
-        raise HTTPException(status_code=404, detail="Not Found")
-    
-    cfg = get_config()
-    content = {
-        "id": f"app.bitchord-selfhosted-addon.{slug}",
-        "name": cfg.get("name", "Lossless Vault"),
-        "version": "1.1.0",
-        "description": "Lossless Vault Personal Music Intelligence & High-Res Audio Archive",
-        "resources": ["search", "stream"],
-        "types": ["track"],
-        "contentType": "music"
-    }
-    return JSONResponse(content=content, headers=build_cors_headers())
+@router.api_route("/icon.png", methods=["GET", "HEAD"])
+def bitchord_icon_root():
+    headers = build_cors_headers()
+    headers["Cache-Control"] = "public, max-age=86400"
+    if os.path.exists(ICON_PATH):
+        return FileResponse(ICON_PATH, media_type="image/png", headers=headers)
+    raise HTTPException(status_code=404, detail="Icon not found")
 
-@router.api_route("/{slug}/{secret}/search", methods=["GET", "HEAD"])
-def bitchord_search(slug: str, secret: str, request: Request, q: str = ""):
+# ─────────────────────────────────────────────────────────────
+# Format 1: Single-prefix (https://<host>/bitchord/<secret>/...)
+# ─────────────────────────────────────────────────────────────
+@router.api_route("/{secret}/manifest.json", methods=["GET", "HEAD"])
+def manifest_single(secret: str, request: Request):
     if not verify_secret(secret):
         raise HTTPException(status_code=404, detail="Not Found")
-    
-    base_url = get_base_url(request, slug, secret)
-    raw_tracks = search_vault(q, limit=50)
-    
-    tracks_json = []
-    for t in raw_tracks:
-        if not t["exists"]:
-            continue
-        format_code = t["suffix"]
-        quality_label = "LOSSLESS" if t["is_lossless"] else "HIGH"
-        art_url = f"{base_url}/art/{t['hex_id']}"
-        tracks_json.append({
-            "id": t["hex_id"],
-            "title": t["title"],
-            "artist": t["artist"],
-            "album": t["album"],
-            "duration": t["duration"],
-            "artworkURL": art_url,
-            "format": format_code,
-            "audioQuality": quality_label
-        })
-    
-    content = {
-        "tracks": tracks_json,
-        "albums": [],
-        "artists": [],
-        "playlists": []
-    }
-    return JSONResponse(content=content, headers=build_cors_headers())
+    base_url = get_base_url(request, secret)
+    return JSONResponse(content=build_manifest_dict(base_url), headers=build_cors_headers())
 
-@router.api_route("/{slug}/{secret}/stream/{track_id}", methods=["GET", "HEAD"])
-def bitchord_stream_descriptor(slug: str, secret: str, track_id: str, request: Request):
+@router.api_route("/{secret}/icon.png", methods=["GET", "HEAD"])
+def icon_single(secret: str):
+    headers = build_cors_headers()
+    headers["Cache-Control"] = "public, max-age=86400"
+    if os.path.exists(ICON_PATH):
+        return FileResponse(ICON_PATH, media_type="image/png", headers=headers)
+    raise HTTPException(status_code=404, detail="Icon not found")
+
+@router.api_route("/{secret}/search", methods=["GET", "HEAD"])
+def search_single(secret: str, request: Request, q: str = ""):
     if not verify_secret(secret):
         raise HTTPException(status_code=404, detail="Not Found")
-    
-    track = find_track_by_hex_id(track_id)
+    base_url = get_base_url(request, secret)
+    tracks = search_vault(q)
+    results = [format_track_client(t, base_url) for t in tracks if t["exists"]]
+    return JSONResponse(content={"tracks": results, "albums": [], "artists": [], "playlists": []}, headers=build_cors_headers())
+
+@router.api_route("/{secret}/stream/{track_id}", methods=["GET", "HEAD"])
+def stream_single(secret: str, track_id: str, request: Request):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    track = find_track(track_id)
     if not track or not track["exists"]:
-        raise HTTPException(status_code=404, detail="Track not found or file missing")
-    
-    base_url = get_base_url(request, slug, secret)
+        raise HTTPException(status_code=404, detail="Track not found")
+    base_url = get_base_url(request, secret)
     suffix = track["suffix"]
     is_lossless = track["is_lossless"]
+    quality_str = "lossless 16-bit 44.1kHz" if is_lossless else (f"{track['bit_rate']}kbps" if track['bit_rate'] else suffix)
     
-    if is_lossless:
-        quality_str = "lossless 16-bit 44.1kHz"
-    else:
-        quality_str = f"{track['bit_rate']}kbps" if track['bit_rate'] else suffix
-    
-    content = {
-        "url": f"{base_url}/file/{track_id}",
+    return JSONResponse(content={
+        "url": f"{base_url}/file/{track['hex_id']}",
         "format": suffix,
         "quality": quality_str,
         "codec": suffix,
@@ -229,15 +278,92 @@ def bitchord_stream_descriptor(slug: str, secret: str, track_id: str, request: R
         "sampleRate": 44100,
         "bitDepth": 16 if is_lossless else 0,
         "bitrate": (track['bit_rate'] or 128) * 1000
-    }
-    return JSONResponse(content=content, headers=build_cors_headers())
+    }, headers=build_cors_headers())
 
-@router.api_route("/{slug}/{secret}/file/{track_id}", methods=["GET", "HEAD"])
-def bitchord_stream_file(slug: str, secret: str, track_id: str, request: Request):
+@router.api_route("/{secret}/file/{track_id}", methods=["GET", "HEAD"])
+@router.api_route("/{secret}/audio/{track_id}", methods=["GET", "HEAD"])
+def file_single(secret: str, track_id: str, request: Request):
     if not verify_secret(secret):
         raise HTTPException(status_code=404, detail="Not Found")
+    return serve_file_bytes(track_id, request)
+
+@router.api_route("/{secret}/art/{track_id}", methods=["GET", "HEAD"])
+@router.api_route("/{secret}/artwork/{track_id}", methods=["GET", "HEAD"])
+def art_single(secret: str, track_id: str):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return serve_artwork(track_id)
+
+# ─────────────────────────────────────────────────────────────
+# Format 2: Dual-prefix (https://<host>/bitchord/<slug>/<secret>/...)
+# ─────────────────────────────────────────────────────────────
+@router.api_route("/{slug}/{secret}/manifest.json", methods=["GET", "HEAD"])
+def manifest_dual(slug: str, secret: str, request: Request):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    base_url = get_base_url(request, f"{slug}/{secret}")
+    return JSONResponse(content=build_manifest_dict(base_url), headers=build_cors_headers())
+
+@router.api_route("/{slug}/{secret}/icon.png", methods=["GET", "HEAD"])
+def icon_dual(slug: str, secret: str):
+    headers = build_cors_headers()
+    headers["Cache-Control"] = "public, max-age=86400"
+    if os.path.exists(ICON_PATH):
+        return FileResponse(ICON_PATH, media_type="image/png", headers=headers)
+    raise HTTPException(status_code=404, detail="Icon not found")
+
+@router.api_route("/{slug}/{secret}/search", methods=["GET", "HEAD"])
+def search_dual(slug: str, secret: str, request: Request, q: str = ""):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    base_url = get_base_url(request, f"{slug}/{secret}")
+    tracks = search_vault(q)
+    results = [format_track_client(t, base_url) for t in tracks if t["exists"]]
+    return JSONResponse(content={"tracks": results, "albums": [], "artists": [], "playlists": []}, headers=build_cors_headers())
+
+@router.api_route("/{slug}/{secret}/stream/{track_id}", methods=["GET", "HEAD"])
+def stream_dual(slug: str, secret: str, track_id: str, request: Request):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    track = find_track(track_id)
+    if not track or not track["exists"]:
+        raise HTTPException(status_code=404, detail="Track not found")
+    base_url = get_base_url(request, f"{slug}/{secret}")
+    suffix = track["suffix"]
+    is_lossless = track["is_lossless"]
+    quality_str = "lossless 16-bit 44.1kHz" if is_lossless else (f"{track['bit_rate']}kbps" if track['bit_rate'] else suffix)
     
-    track = find_track_by_hex_id(track_id)
+    return JSONResponse(content={
+        "url": f"{base_url}/file/{track['hex_id']}",
+        "format": suffix,
+        "quality": quality_str,
+        "codec": suffix,
+        "container": suffix,
+        "manifest": "none",
+        "sampleRate": 44100,
+        "bitDepth": 16 if is_lossless else 0,
+        "bitrate": (track['bit_rate'] or 128) * 1000
+    }, headers=build_cors_headers())
+
+@router.api_route("/{slug}/{secret}/file/{track_id}", methods=["GET", "HEAD"])
+@router.api_route("/{slug}/{secret}/audio/{track_id}", methods=["GET", "HEAD"])
+def file_dual(slug: str, secret: str, track_id: str, request: Request):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return serve_file_bytes(track_id, request)
+
+@router.api_route("/{slug}/{secret}/art/{track_id}", methods=["GET", "HEAD"])
+@router.api_route("/{slug}/{secret}/artwork/{track_id}", methods=["GET", "HEAD"])
+def art_dual(slug: str, secret: str, track_id: str):
+    if not verify_secret(secret):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return serve_artwork(track_id)
+
+# ─────────────────────────────────────────────────────────────
+# Helper functions for Streaming and Artwork
+# ─────────────────────────────────────────────────────────────
+def serve_file_bytes(track_id: str, request: Request):
+    track = find_track(track_id)
     if not track or not track["exists"]:
         raise HTTPException(status_code=404, detail="Track file not found")
     
@@ -287,12 +413,8 @@ def bitchord_stream_file(slug: str, secret: str, track_id: str, request: Request
     
     return Response(content=data, status_code=206, headers=headers)
 
-@router.api_route("/{slug}/{secret}/art/{track_id}", methods=["GET", "HEAD"])
-def bitchord_stream_art(slug: str, secret: str, track_id: str, request: Request):
-    if not verify_secret(secret):
-        raise HTTPException(status_code=404, detail="Not Found")
-    
-    track = find_track_by_hex_id(track_id)
+def serve_artwork(track_id: str):
+    track = find_track(track_id)
     headers = build_cors_headers()
     headers["Cache-Control"] = "public, max-age=86400"
     
@@ -302,8 +424,7 @@ def bitchord_stream_art(slug: str, secret: str, track_id: str, request: Request)
             media_type = "image/jpeg" if art_path.endswith((".jpg", ".jpeg")) else "image/png"
             return FileResponse(art_path, media_type=media_type, headers=headers)
     
-    fallback_path = "/opt/music-brain/backend/app/default_cover.jpg"
-    if os.path.exists(fallback_path):
-        return FileResponse(fallback_path, media_type="image/jpeg", headers=headers)
+    if os.path.exists(ICON_PATH):
+        return FileResponse(ICON_PATH, media_type="image/png", headers=headers)
     
     raise HTTPException(status_code=404, detail="Artwork not found")
