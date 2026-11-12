@@ -18,6 +18,7 @@ An intelligent, self-evolving, self-hosted music server ecosystem. **Lossless Va
 flowchart TD
     subgraph Clients["Playback Clients"]
         SYM["Symfonium (Android)<br><i>Mobile Subsonic Streaming</i>"]
+        BIT["BitChord (Android)<br><i>Native Add-on Source</i>"]
         FEI["Feishin / Subsonic Desktop"]
         WEB["Navidrome Web UI"]
     end
@@ -142,6 +143,19 @@ Lossless Vault features a dedicated **Phonetic Dravidian Transliterator**:
 * **Client Compatibility:** Stream seamlessly with Subsonic clients (Symfonium, Feishin, Substreamer) or any web browser over private Wi-Fi and Tailscale.
 
 ---
+
+---
+
+## 📱 BitChord Add-on Integration (Android)
+
+Lossless Vault includes native support for **[BitChord](https://bitchord.org)**'s source extension protocol, allowing you to use your personal library directly inside BitChord:
+
+* **Manifest URL:**
+  ```text
+  https://pve.tail1374e8.ts.net/bitchord/vault-1/lossless_vault_2026/manifest.json
+  ```
+* **Lossless First Priority:** BitChord queries your vault first. If you own the track, it streams your original bit-perfect FLAC/Opus file directly; if not, it seamlessly falls back to online streaming sources.
+* **High-Res Audio & Seeking:** Full HTTP byte-range seeking (`206 Partial Content`) and 1200×1200 Google CDN studio cover art over your private encrypted Tailnet.
 
 ## 🚀 Installation & Setup
 

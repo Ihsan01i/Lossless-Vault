@@ -23,6 +23,15 @@ except ImportError:
 
 app = FastAPI(title="Music Brain Master Orchestrator", version="4.0")
 
+# Native BitChord Add-on Integration (High-Res Lossless Source)
+try:
+    from backend.app.bitchord_router import router as bitchord_router
+except ImportError:
+    from app.bitchord_router import router as bitchord_router
+
+app.include_router(bitchord_router)
+
+
 BASE_DIR = "/opt/music-brain"
 DB_PATH = os.path.join(BASE_DIR, "music_brain.db")
 MUSIC_DIR = os.path.join(BASE_DIR, "music")
