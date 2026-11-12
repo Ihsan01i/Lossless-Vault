@@ -1,0 +1,15 @@
+# Lossless Vault .gitignore
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.db
+*.db-*
+*.log
+*.tmp
+browser.json
+slskd.yml
+music/
+data/
+cache/
