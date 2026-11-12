@@ -8,7 +8,7 @@
 [![Soulseek](https://img.shields.io/badge/P2P-Soulseek%20(slskd)-blueviolet)](https://github.com/slskd/slskd)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An intelligent, self-evolving, self-hosted music server ecosystem. **Lossless Vault** bridges the gap between private local media storage and modern algorithmic streaming, combining mathematical episodic memory, autonomous discovery ingestion, Google CDN 1200×1200 studio artwork, phonetic regional lyrics (Manglish/Tanglish), and zero-VPN mobile streaming.
+An intelligent, self-evolving, self-hosted music server ecosystem. **Lossless Vault** bridges the gap between private local media storage and modern algorithmic streaming, combining mathematical episodic memory, autonomous discovery ingestion, Google CDN 1200×1200 studio artwork, phonetic regional lyrics (Manglish/Tanglish), and private mobile streaming.
 
 ---
 
@@ -17,13 +17,13 @@ An intelligent, self-evolving, self-hosted music server ecosystem. **Lossless Va
 ```mermaid
 flowchart TD
     subgraph Clients["Playback Clients"]
-        SYM["Symfonium (Android)<br><i>Zero-VPN Public HTTPS</i>"]
+        SYM["Symfonium (Android)<br><i>Mobile Subsonic Streaming</i>"]
         FEI["Feishin / Subsonic Desktop"]
         WEB["Navidrome Web UI"]
     end
 
-    subgraph Ingress["Internet Edge & Ingress"]
-        TF["Tailscale Funnel (Port 443)<br><code>https://pve.tail1374e8.ts.net</code><br><i>Automated Let's Encrypt SSL</i>"]
+    subgraph Ingress["Encrypted Ingress & Network"]
+        TF["Private Tailnet / LAN<br><code>WireGuard Encrypted Mesh</code>"]
     end
 
     subgraph Proxmox["Proxmox VE (Debian 12 LXC: music-brain)"]
@@ -48,7 +48,7 @@ flowchart TD
         end
     end
 
-    Clients -->|"Public HTTPS"| TF
+    Clients -->|"Private Mesh / LAN"| TF
     TF --> NAVI
     NAVI --- Storage
     AutonomousEngines <--> Storage
@@ -135,14 +135,11 @@ Lossless Vault features a dedicated **Phonetic Dravidian Transliterator**:
 
 ---
 
-## 🌐 Zero-VPN Remote Streaming (Tailscale Funnel)
+## 🔒 Private Remote Streaming (Tailscale WireGuard)
 
-* **No VPN Required on Phone:** Bypasses Android's 1-VPN limit, preventing conflicts with ad-blockers and eliminating mobile battery drain.
-* **Public HTTPS:** Exposed securely via **Tailscale Funnel** on standard port 443 with automated Let's Encrypt SSL:
-  ```text
-  https://pve.tail1374e8.ts.net/
-  ```
-* **Client Compatibility:** Stream instantly with Subsonic clients (Symfonium, Feishin, Substreamer) or any web browser on 5G/Wi-Fi worldwide.
+* **Private Tailnet Access:** Stream securely anywhere via Tailscale WireGuard mesh or local LAN.
+* **Zero Public Exposure:** No public funnel or exposed login pages on the open internet; access is restricted exclusively to authenticated devices in your private tailnet.
+* **Client Compatibility:** Stream seamlessly with Subsonic clients (Symfonium, Feishin, Substreamer) or any web browser over private Wi-Fi and Tailscale.
 
 ---
 
@@ -151,7 +148,7 @@ Lossless Vault features a dedicated **Phonetic Dravidian Transliterator**:
 ### Prerequisites
 * Proxmox VE (or any Linux server running Debian 12 / Ubuntu 24.04).
 * Navidrome installed and running.
-* Tailscale (optional, for zero-VPN public Funnel).
+* Tailscale (optional, for secure private remote streaming).
 
 ### Deployment
 ```bash
