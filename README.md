@@ -143,19 +143,6 @@ Lossless Vault features a dedicated **Phonetic Dravidian Transliterator**:
 
 ---
 
----
-
-## 📱 BitChord Add-on Integration (Android)
-
-Lossless Vault includes native support for **[BitChord](https://bitchord.org)**'s source extension protocol, allowing you to use your personal library directly inside BitChord:
-
-* **Manifest URL:**
-  ```text
-  https://pve.tail1374e8.ts.net/bitchord/vault-1/lossless_vault_2026/manifest.json
-  ```
-* **Lossless First Priority:** BitChord queries your vault first. If you own the track, it streams your original bit-perfect FLAC/Opus file directly; if not, it seamlessly falls back to online streaming sources.
-* **High-Res Audio & Seeking:** Full HTTP byte-range seeking (`206 Partial Content`) and 1200×1200 Google CDN studio cover art over your private encrypted Tailnet.
-
 ## 🚀 Installation & Setup
 
 ### Prerequisites
